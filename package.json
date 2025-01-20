@@ -1,0 +1,11 @@
+{
+  "name": "project-backend",
+  "version": "1.0.0",
+  "description": "backend for pet care ",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "priyanshu gupta",
+  "license": "ISC"
+}
