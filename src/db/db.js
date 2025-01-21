@@ -8,7 +8,7 @@ const connnectDB = async () => {
         // niche hum mongoose ka connection kar rahe hai database se aur iska matlab ye hai ki ye hum db se connect kar rahe hai 
         const connectionInstance = await mongoose.connect(`${process.env.MONGODB_URL}/${DB_NAME}`);
 
-        console.log(`\n MongoDB connected !! DB Host: ${connectionInstance.connection.host}`);
+        
 
     } catch (error) {
         console.log("MongoDD connecion error: ",error);
