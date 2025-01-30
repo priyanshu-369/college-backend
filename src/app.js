@@ -25,14 +25,19 @@ app.use(cookieParser())
 //all routes imported here 
 
 import userRouter from "./routes/user.routes.js"
-
-
-
+import adminRouter from "./routes/admin.routes.js"
+import staffRouter from "./routes/staff.routes.js"
 
 // routes declaration
 
 // lets say koi request aaya  /user route pe to ye pass karega -> userRouter pe jo handle karega /user route pe aaye hue request ko. 
 app.use("/paws-care/v1/users", userRouter)
+
+// admin routes yaha hai
+app.use("/paws-care/v1/admin", adminRouter)
+
+// staff route is found below 
+app.use("/paws-care/v1/staff", staffRouter)
 
 
 

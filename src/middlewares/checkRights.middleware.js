@@ -1,15 +1,30 @@
-const checkAdminRights = (req, res, next) => {
-    const user = req.user;
+import jwt from "jsonwebtoken"
+import ApiError from "../utils/ApiError.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { User } from "../models/user.model.js";
+export const verifyAdminJWT = asyncHandler ( async(req, res, next) =>{
+try {
+       const token = req.cookies?.accessToken || req.header("Authorization")?.replace("Bearer ", "")
+    
+       if(!token){
+        throw new ApiError(401, "Unauthorized request. ")
+       }
+    
+    //   niche user ke Access token ko decode karke ussme se _id nikalenge
+       const decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET)
+    
+       const user = await User.findById(decodedToken?._id).select(
+        "-password -avatar -refreshToken -appointmentHistory"
+        )
+    
+        if(user.role !== "admin"){
+            throw new ApiError(401,"Invalid Access for Admin Resource. ")
+        }
+    
+        req.user = user;
+        next()
+} catch (error) {
+    throw new ApiError(401,error?.message || "Invalid access token for admin .")
+}
 
-    if (!user) {
-        return res.status(401).json({ message: 'Unauthorized' });
-    }
-
-    if (user.role !== 'admin') {
-        return res.status(403).json({ message: 'Forbidden: Admins only' });
-    }
-
-    next();
-};
-
-export {checkAdminRights};
+})

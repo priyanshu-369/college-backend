@@ -2,6 +2,7 @@
 import ApiError from "../utils/ApiError.js"
 import ApiResponse from "../utils/ApiResponse.js"
 
+import { Pet } from "../models/pet.model.js"
 import { User } from "../models/user.model.js"
 import { asyncHandler }  from "../utils/asyncHandler.js"
 import { uploadOnCloudinary } from "../utils/cloudinary.js"
@@ -25,9 +26,15 @@ const generateAccessAndRefreshTokens = async(userId) => {
     }
 }
 
+// capitalize first letter of fname & last name
+function capitalizeFullName(fullName) {
+    return fullName
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+}
 
-
-
+// >>>>>>user part starts <<<<<<<
 
 // below the register user logic
 const registerUser = asyncHandler ( async(req, res) => {
@@ -84,7 +91,8 @@ const registerUser = asyncHandler ( async(req, res) => {
                                 email,
                                 avatar: avatar.url,
                                 password,
-                                phone
+                                phone,
+                                
                             }) 
 
     
@@ -106,13 +114,6 @@ const registerUser = asyncHandler ( async(req, res) => {
         throw new ApiError(500,"Something unexpected happened while registering the user.")
     }
 
-    function capitalizeFullName(fullName) {
-        return fullName
-            .split(' ')
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-            .join(' ');
-    }
-    
     const username = capitalizeFullName(userCreated.fullName);
     const mailToUser = userCreated.email
     sendRegistrationMail(mailToUser, username)
@@ -121,7 +122,6 @@ const registerUser = asyncHandler ( async(req, res) => {
         new ApiResponse(200, userCreated ,"User registered successfully. ")
     )
 })
-
 
 // user login logic
 const loginUser = asyncHandler ( async (req, res) =>{
@@ -200,14 +200,257 @@ const logoutUser = asyncHandler( async(req, res) =>{
 
 })
 
+// update user data but only when user is valid..
+const updateUserData = asyncHandler(async (req, res) => {
+    const { fullName, phone } = req.body;
+    const avatarLocalPath = req.file?.path;
+
+    if (!fullName && !phone && !avatarLocalPath) {
+        throw new ApiError(400, "At least one field is required to update");
+    }
+
+    const updateFields = {};
+    if(fullName){
+        updateFields.fullName = fullName;
+    } 
+        
+    if(phone){
+        updateFields.phone = phone;
+    }
+
+    if(avatarLocalPath) {
+        const avatar = await uploadOnCloudinary(avatarLocalPath);
+        
+        if (!avatar) {
+            throw new ApiError(400, "Avatar file upload failed");
+        }
+        updateFields.avatar = avatar.url;
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+        req.user._id,
+        { $set: updateFields },
+        { new: true }
+    ).select("-password -refreshToken");
+
+    return res
+    .status(200)
+    .json(
+        new ApiResponse(200, updatedUser, "User data updated successfully")
+    );
+});
+
+// updatePassword only if logged in
+const updatePassword = asyncHandler( async(req, res) => {
+    const {oldPassword, newPassword } = req.body;
+    const userId = req.user._id;
+
+    if(!oldPassword && !newPassword){
+        new ApiError(400," Both fields are empty.")
+    }
+
+    if(!oldPassword || !newPassword){
+        new ApiError(400," Fill both fields to procced.")
+    }
+
+    if(oldPassword === newPassword){
+        throw new ApiError(401, "Given old password in new password field. ")
+    }
+
+    const isMatch = userId.isPasswordCorrect(oldPassword)
+    if(!isMatch){
+        throw new ApiError("Old password is incorrect. ")
+    }
+
+    userId.password = newPassword;
+    await userId.save({ validateBeforeSave: false });
+
+    return res.status(200).json(
+        new ApiResponse(200, null, "Password updated successfully.")
+    );
+    
+})
+
+// forgot password and user logout , wantt to reset the password
+const generateOtp = () => {
+    return Math.floor(100000 + Math.random() * 900000).toString(); 
+  };
 
 
+const verifyUserSendOtp = asyncHandler( async(req, res) => {
+    const { emailOrPhone } = req.body
+
+    if(!emailOrPhone){
+        throw new ApiError(400, "Email or phone not specified. ")
+    }
+
+    const user = await User.findOne({
+        $or: [
+            {
+                email: emailOrPhone
+            },
+            {
+                phone: emailOrPhone
+            }
+        ]
+    })
+
+    if(!user){
+        throw new ApiError(404," User not found. ")
+    }
 
 
+    const otp = generateOtp();
+    req.session.otp = otp;
+    req.session.emailOrPhone = emailOrPhone;
+  
+    // Set session expiry to 5 minutes
+    req.session.cookie.maxAge = 5 * 60 * 1000;
+  
+    const userEmail = user.email
+    const userName = capitalizeFullName(user.fullName)
 
+    await sendOtpMail(userEmail, userName, otp)
+    // await sendMail(email, subject, userData);
+    res.status(200).json(new ApiResponse(200, {}, 'Email verified and OTP sent.'));
+  });
+
+
+const verifyOtp = asyncHandler( async(req, res) => {
+        const { emailOrPhone, userOtp } = req.body;
+        
+        const storedOtp = req.session.otp;
+        const storedEmailOrPhone = req.session.emailOrPhone;
+        
+        if (!storedOtp || !storedEmailOrPhone) {
+          throw new ApiError(400, 'OTP has expired or is not valid.');
+        }
+      
+        // Clear OTP and email from session after use
+        delete req.session.otp;
+        delete req.session.emailOrPhone;
+        
+        if (userOtp !== storedOtp || emailOrPhone !== storedEmailOrPhone) {
+          throw new ApiError(400, 'Invalid OTP or email.');
+        }
+      
+        res.status(200).json(new ApiResponse(200, {}, 'OTP validated.'));
+});
+
+const resetPassword = asyncHandler(async (req, res, next) => {
+    const { emailOrPhone, newPassword } = req.body;
+  
+    const user = await User.findOne({
+        $or:[
+            { email: emailOrPhone}, { phone: emailOrPhone}
+        ]
+     });
+
+    if (!user) {
+      throw new ApiError(400, 'Invalid email. Please retry with the correct email.');
+    }
+  
+    user.password = newPassword;
+    await user.save({ validateBeforeSave: false });
+  
+    res.status(200).json(new ApiResponse(200, {}, 'Password changed successfully.'));
+  });
+  
+  
+
+// >>>>>>>>>> user part ends <<<<<<<<<<<<<<<
+
+// >>>>>>>>>> pet part starts <<<<<<<<<<<<<<
+// now the pet data creation (if authorized user)
+const registerPet = asyncHandler( async(req, res) => {
+    const {petName, species, breed, age } = req.body;
+
+    const ownerId = req.user._id
+
+    if(
+        [petName, species, breed, age].some((field) => field?.trim() === "")
+    ){
+        throw new ApiError(400,"All filed are required. ")
+    }
+
+    // image handling
+    const petAvatarLocalPath = req.file?.path;
+    // if(!petImageLocalPath){
+    //     throw new ApiError(400, "Avatar file is required. ")
+    // }
+
+    // upload on cloudinary 
+    const petAvatarImage = await uploadOnCloudinary(petAvatarLocalPath)
+
+    const pet = await Pet.create({
+        petName,
+        breed,
+        species,
+        age,
+        petAvatar: petAvatarImage.url || "https://www.shutterstock.com/blog/wp-content/uploads/sites/5/2018/12/Vectorize-Your-Pets-Featured-Image-01.jpg",
+        owner:ownerId
+    })
+    
+    if(!petCreated){
+        throw new ApiError(500,"Something went wrong while registering the pet. ")
+    }
+
+    const petInfo = {
+        petName: pet.petName,
+        species: pet.species,
+        breed: pet.breed,
+        age: pet.age
+    } 
+
+    return res
+    .status(201)
+    .json(
+        new ApiResponse(
+            200,
+            petInfo,
+            "your pet register successfully horray!!!"
+        )
+    )
+
+})
+
+
+// now update pet data
+const updatePetData = asyncHandler( async(req, res) => {
+
+    const {petName, species, breed, age } = req.body;
+
+    const ownerId = req.user._id
+    const pet = await Pet.findById(ownerId)
+
+    if(!pet){
+        throw new ApiError(404,"pet infomation not found . ")
+    }
+
+
+    const petAvatarLocalPath = req.file?.path;
+
+    if(!petName && !species && !breed && !age && !petAvatarLocalPath){
+        throw new ApiError(400,"provide with fields to update")
+    }
+
+    if(petAvatarLocalPath){
+        const petAvatarImage = await uploadOnCloudinary(petAvatarLocalPath)
+    }
+    
+})
+
+// >>>>>>>>>> pet part ends <<<<<<<<<<<<<<<
 
 export  {
     registerUser,
     loginUser,
-    logoutUser
+    logoutUser,
+    updateUserData,
+    updatePassword,
+    verifyUserSendOtp,
+    verifyOtp,
+    resetPassword,
+    registerPet,
+    updatePetData
 }
