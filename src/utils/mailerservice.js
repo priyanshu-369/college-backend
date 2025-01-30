@@ -30,23 +30,26 @@ const sendMail = async (to, subject, htmlContent) => {
 const sendRegistrationMail = async (to, username) => {
     const subject = 'Welcome to Our Service';
     const htmlContent = `
-        <!DOCTYPE html>
+  <head>
   <style>
     body {
       font-family: Arial, sans-serif;
-      background-color: #f4f4f4;
+      background-color: white;
       padding: 20px;
       margin: 0;
     }
     .email-container {
+      border: 1px solid #89929c;
       max-width: 600px;
       margin: 0 auto;
-      background-color: white;
+      background-color: #EDF7F6;
       border-radius: 8px;
       overflow: hidden;
+      box-shadow: 5px 5px 5px grey;
     }
     .email-header {
       background-color: #007BFF;
+      border-bottom: 1px solid grey;
       color: white;
       padding: 10px;
       text-align: center;
@@ -104,8 +107,7 @@ const sendRegistrationMail = async (to, username) => {
       <p>&copy; 2025 Paws Care. All rights &reg; reserved under JMPC, IT department.</p>
     </div>
   </div>
-
-
+</body>
     `;
     await sendMail(to, subject, htmlContent);
 };
@@ -114,32 +116,37 @@ const sendRegistrationMail = async (to, username) => {
 const sendOtpMail = async (to, username, otp) => {
     const subject = 'Your OTP for Password Reset';
     const htmlContent = `
-  <style>
-    body {
+    <head>
+    <style>
+  body {
       font-family: Arial, sans-serif;
-      background-color: #f4f4f4;
+      background-color: white;
       padding: 20px;
       margin: 0;
     }
     .email-container {
+      border: 1px solid #89929c;
       max-width: 600px;
       margin: 0 auto;
-      background-color: white;
+      background-color: #EDF7F6;
       border-radius: 8px;
       overflow: hidden;
+      box-shadow: 5px 5px 5px grey;
     }
     .email-header {
       background-color: #007BFF;
+      border-bottom: 1px solid grey;
       color: white;
       padding: 10px;
       text-align: center;
     }
     .email-body {
       padding: 20px;
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 500;
-      color: #748379;
+      color: #597061;
     }
+
     .content-head {
       font-size: 20px;
       font-weight: 600;
@@ -180,6 +187,7 @@ const sendOtpMail = async (to, username, otp) => {
       <p>&copy; 2025 Paws Care. All rights &reg; reserved under JMPC, IT department.</p>
     </div>
   </div>
+  </body>
     `;
     await sendMail(to, subject, htmlContent);
 };
@@ -188,32 +196,37 @@ const sendOtpMail = async (to, username, otp) => {
 const sendBookingConfirmationMail = async (to, bookingDetails) => {
     const subject = 'Booking Confirmation';
     const htmlContent = `    
-  <style>
-    body {
+    <head>
+    <style>
+     body {
       font-family: Arial, sans-serif;
-      background-color: #f4f4f4;
+      background-color: white;
       padding: 20px;
       margin: 0;
     }
     .email-container {
+      border: 1px solid #89929c;
       max-width: 600px;
       margin: 0 auto;
-      background-color: white;
+      background-color: #EDF7F6;
       border-radius: 8px;
       overflow: hidden;
+      box-shadow: 5px 5px 5px grey;
     }
     .email-header {
       background-color: #007BFF;
+      border-bottom: 1px solid grey;
       color: white;
       padding: 10px;
       text-align: center;
     }
     .email-body {
       padding: 20px;
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 500;
-      color: #748379;
+      color: #597061;
     }
+
     .content-head {
       font-size: 20px;
       font-weight: 600;
@@ -258,6 +271,7 @@ const sendBookingConfirmationMail = async (to, bookingDetails) => {
       <p>&copy; 2025 Paws Care. All rights &reg; reserved under JMPC, IT department.</p>
     </div>
   </div>
+  </body>
     `;
     await sendMail(to, subject, htmlContent);
 };
