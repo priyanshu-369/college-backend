@@ -74,9 +74,8 @@ web_modules/
 .env.test
 .env.production
 
-#Secret
+# Secret
 .env
-
 
 # parcel-bundler cache (https://parceljs.org/)
 .cachea
@@ -92,8 +91,7 @@ dist
 
 # Gatsby files
 .cache/
-# Comment in the public line in if your project uses Gatsby and not Next.js
-# https://nextjs.org/blog/next-9-1#public-directory-support
+# Uncomment if your project uses Gatsby
 # public
 
 # vuepress build output
@@ -120,5 +118,3 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
-
-# End of https://mrkandreev.name/snippets/gitignore-generator/#Node
