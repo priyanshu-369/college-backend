@@ -62,7 +62,7 @@ const registerUser = asyncHandler ( async(req, res) => {
     }
 
     if(password.length < 8){
-        throw new ApiError(400,"Password is incorrect. ")
+        throw new ApiError(400,"To short password, At least 8 character required. ")
     }
 
     // checking before that the user with same email not exist, so to create new
