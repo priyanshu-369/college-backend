@@ -61,7 +61,7 @@ const userSchema = new mongoose.Schema(
 }
 )
 
-// yaha context pata hona jaruri hai isliye function user karege arrow fn nahi
+// yaha context yani refrence pata hona jaruri hai isliye function user karege arrow fn nahi
 userSchema.pre("save", async function (next){
     if(!this.isModified("password")) return next();
 
