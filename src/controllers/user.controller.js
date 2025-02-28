@@ -4,6 +4,7 @@ import ApiResponse from "../utils/ApiResponse.js"
 
 import { Pet } from "../models/pet.model.js"
 import { User } from "../models/user.model.js"
+import { Appointment } from "../models/appointment.model.js" 
 import { asyncHandler }  from "../utils/asyncHandler.js"
 import { uploadOnCloudinary } from "../utils/cloudinary.js"
 import { sendRegistrationMail, sendOtpMail } from "../utils/mailerservice.js"
@@ -442,6 +443,128 @@ const updatePetData = asyncHandler( async(req, res) => {
 
 // >>>>>>>>>> pet part ends <<<<<<<<<<<<<<<
 
+
+// >>>>> booking part starts  <<<<<<
+
+const bookAppointment = asyncHandler(async (req, res) => {
+    const { userId, petId, staffId, date, bookedSlot } = req.body;
+
+    // Validate input data
+    if (!userId && !petId && !staffId && !date && !bookedSlot) {
+        throw new ApiError(400, "All fields are required.");
+    }
+
+    // Check if the user exists
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new ApiError(404, "User not found");
+    }
+
+    // Check if the pet exists and belongs to the user
+    const pet = await Pet.findOne({ _id: petId, owner: userId });
+    if (!pet) {
+        throw new ApiError(404, "Pet not found or does not belong to the user");
+    }
+
+    // Check if the staff exists
+    const staff = await Staff.findById(staffId);
+    if (!staff) {
+        throw new ApiError(404, "Staff not found");
+    }
+
+    // Convert the date to a day (e.g., "Monday")
+    const appointmentDate = new Date(date);
+    const dayOfWeek = appointmentDate.toLocaleString("en-US", { weekday: "long" }); // e.g., "Monday"
+
+    // Check if the staff is available on the requested day
+    const staffAvailability = staff.availableSlots.find(slot => slot.day === dayOfWeek);
+    if (!staffAvailability) {
+        throw new ApiError(400, `Staff is not available on ${dayOfWeek}`);
+    }
+
+    // Check if the requested time slot is available
+    if (!staffAvailability.timeSlots.includes(bookedSlot)) {
+        throw new ApiError(400, `Staff is not available at the requested time slot: ${bookedSlot}`);
+    }
+
+    // Check if the staff is already booked at the requested date and time slot
+    const existingAppointment = await Appointment.findOne({
+        staff: staffId,
+        date: date,
+        bookedSlot: bookedSlot,
+        status: { $in: ["scheduled"] }, // Only check for scheduled appointments
+    });
+
+    if (existingAppointment) {
+        throw new ApiError(400, "Staff is already booked at the requested time slot");
+    }
+
+    // Create the appointment
+    const appointment = await Appointment.create({
+        user: userId,
+        staff: staffId,
+        pet: petId,
+        date: date,
+        bookedSlot: bookedSlot,
+        status: "scheduled", // Default status
+    });
+
+    if (!appointment) {
+        throw new ApiError(500, "Failed to book appointment");
+    }
+
+    // Return the created appointment
+    return res
+        .status(201)
+        .json(new ApiResponse(201, appointment, "Appointment booked successfully"));
+});
+
+const updateBookingStatus  = asyncHandler( async(req, res)=>{
+    const userId = req.user._id;
+    const appointmentId = req.body.appointmentId; // Assuming appointmentId is passed as a route parameter
+
+    try {
+        const appointment = await Appointment.findOne({
+            _id: appointmentId,
+            user: userId,
+        });
+
+        if (!appointment) {
+            throw new ApiError(404, "Appointment not found or not authorized.");
+        }
+
+        if (appointment.bookingStatus === 'cancelled') {
+            throw new ApiError(400, "Appointment is already cancelled.");
+        }
+
+        appointment.bookingStatus = 'cancelled';
+        await appointment.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Appointment cancelled successfully.",
+            data: appointment,
+        });
+    } catch (error) {
+        if (error instanceof ApiError) {
+            res.status(error.statusCode).json({
+                success: false,
+                message: error.message,
+            });
+        } else {
+            // Handle other errors (e.g., database errors)
+            console.error("Error cancelling appointment:", error);
+            res.status(500).json({
+                success: false,
+                message: "Internal server error.",
+            });
+        }
+    }
+});
+
+
+
+
 export  {
     registerUser,
     loginUser,
@@ -452,5 +575,6 @@ export  {
     verifyOtp,
     resetPassword,
     registerPet,
-    updatePetData
+    updatePetData,
+    bookAppointment
 }

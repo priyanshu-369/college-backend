@@ -5,7 +5,7 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "ignite": "nodemon src/server.js "
+    "build": "nodemon src/server.js "
   },
   "author": "priyanshu gupta",
   "license": "Jashbhai Maganbhai Patel College, IT Department",

@@ -32,7 +32,6 @@ router.route("/appointment/today").get(verifyStaffJWT, checkTodaysAppointments)
 router.route("/appointment/update").patch(verifyStaffJWT, updateApointmentStatus)
 
 
-
 //getting the user and staff as well as the appointment data , blogs , review if done this are on hold for some time.
 
 export default router

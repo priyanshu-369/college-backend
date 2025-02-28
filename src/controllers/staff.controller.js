@@ -39,6 +39,7 @@ const loginStaff = asyncHandler ( async (req, res) =>{
         $or: [{email : emailOrPhone }, {phone: emailOrPhone}]
     })
 
+
     if(!staffExist){
         throw new ApiError(400, "email or phone is required")
     }
@@ -200,6 +201,7 @@ const checkTotalScheduledAppointments = asyncHandler ( async(req, res) => {
 const checkTodaysAppointments = asyncHandler( async(req, res) => {
     
     const staffId = req.staff._id;
+    
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Set to start of today
 
@@ -253,7 +255,7 @@ const checkTodaysAppointments = asyncHandler( async(req, res) => {
 const updateApointmentStatus = asyncHandler( async(req, res) => {
     const staffId = req.staff._id;
 
-        const { timeSlot } = req.body;
+        const { timeSlot , appointmentId } = req.body;
     
         // Get today's date
         const today = new Date();
@@ -264,7 +266,7 @@ const updateApointmentStatus = asyncHandler( async(req, res) => {
         tomorrow.setHours(0, 0, 0, 0);
     
         const result = await Appointment.updateOne(
-            {
+            {  _id:appointmentId,
                 staff: staffId,
                 status: "scheduled",
                 date: { $gte: today, $lt: tomorrow },
@@ -281,7 +283,15 @@ const updateApointmentStatus = asyncHandler( async(req, res) => {
         .status(200)
         .json(new ApiResponse(200, result, "Appointment status updated successfully"));
     });
-    
+
+
+
+
+// >>> notes this part will be for  
+// get all staff list
+
+
+// delete staff 
 
 
 export {

@@ -34,9 +34,8 @@ const staffSchema = new mongoose.Schema(
         specialization: { 
             type: String //"dermatologist", "surgeon", "cat specialist"
         }, 
-        experience: { 
-            type: String, 
-            required: true  // Years of experience
+        qulification: {
+            type: String
         },
         availableSlots:[{ 
             day: { 
