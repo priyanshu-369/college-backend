@@ -54,7 +54,7 @@ const loginStaff = asyncHandler ( async (req, res) =>{
 
     const loggedInStaff = await Staff.findById(staffExist._id).select( "-password -avatar -refreshToken")
 
-    const options = {
+    const options =  {
         httpOnly: true,
         secure: true,
     }
