@@ -1,13 +1,16 @@
 
 import ApiError from "../utils/ApiError.js"
 import ApiResponse from "../utils/ApiResponse.js"
-
+import { Staff } from "../models/staff.model.js"
 import { Pet } from "../models/pet.model.js"
 import { User } from "../models/user.model.js"
 import { Appointment } from "../models/appointment.model.js" 
 import { asyncHandler }  from "../utils/asyncHandler.js"
 import { uploadOnCloudinary } from "../utils/cloudinary.js"
 import { sendRegistrationMail, sendOtpMail } from "../utils/mailerservice.js"
+import  redis  from "../db/redisdb.js"
+import { Payment } from "../models/payment.model.js"
+
 
 
 // method to generate the accesstoken and the refresh token
@@ -67,12 +70,20 @@ const registerUser = asyncHandler ( async(req, res) => {
     }
 
     // checking before that the user with same email not exist, so to create new
-    const userExist = await User.findOne(
-        {$or:[{email}, {phone}]
-    })
+    // const userExistMail = await User.findOne(
+    //     {$or:[{email}, {phone}]
+    // })
+
+    const userExistMail = await User.findOne({email})
+
         
-    if(userExist){
-        throw new ApiError(409, "User with same email or phone already exist. ")
+    if(userExistMail){
+        throw new ApiError(409, "User with same email already exist. ")
+    }
+
+    const userExistPhone = await User.findOne({phone})
+    if(userExistPhone){
+        throw new ApiError(409, "User with same phone no. already exist. ")
     }
 
     const avatarLocalPath = req.file?.path;
@@ -124,86 +135,96 @@ const registerUser = asyncHandler ( async(req, res) => {
     )
 })
 
+
 // user login logic
-const loginUser = asyncHandler ( async (req, res) =>{
+const loginUser = asyncHandler(async (req, res) => {
+    const { emailOrPhone, password } = req.body;
 
-    const{ emailOrPhone , password } = req.body;
-
-    if(
-        [ emailOrPhone, password ].some( (field)=> field?.trim() === "")
-    ){
-        throw new ApiError(400,"Fill the empty fields. ")
+    console.log("inside login");
+    if (!emailOrPhone?.trim() || !password?.trim()) {
+        throw new ApiError(400, "Email/Phone and Password required");
     }
+
+    console.log("Login Attempt:", emailOrPhone, password);
 
     const userExist = await User.findOne({
-        $or: [{email : emailOrPhone }, {phone: emailOrPhone}]
-    })
+        $or: [{ email: emailOrPhone }, { phone: emailOrPhone }]
+    });
 
-    if(!userExist){
-        throw new ApiError(400, "email or phone is required")
+    if (!userExist) {
+        throw new ApiError(404, "User with Email or Phone not Found.");
     }
 
-    const userVerified = await userExist.isPasswordCorrect(password)
+    const userVerified = await userExist.isPasswordCorrect(password);
 
-    if(!userVerified){
-            throw new ApiError(400,"password incorrect. ")
-        }
+    if (!userVerified) {
+        throw new ApiError(400, "Password incorrect.");
+    }
 
-    const { accessToken , refreshToken} = await generateAccessAndRefreshTokens(userExist._id)
+    console.log("User Verified!");
 
-    const loggedInUser = await User.findById(userExist._id).select( "-password  -refreshToken -appointmentHistory -role")
+    const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(userExist._id);
+
+    const loggedInUser = await User.findById(userExist._id).select("-password -refreshToken -appointmentHistory -role");
 
     const options = {
         httpOnly: true,
         secure: true,
-    }
+        sameSite: "None",
+        path: "/"
+    };
 
-    return res
-    .status(200)
-    .cookie("accessToken",accessToken, options)
-    .cookie("refreshToken",refreshToken, options)
-    .json(
-        new ApiResponse(
-            200,
-            { 
-                user: loggedInUser, accessToken, refreshToken
-            },
-            "user loggedIn successfully!!"
-        )
-    )
-})
+    res
+        .status(200)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", refreshToken, options)
+        .json(new ApiResponse(200, { user: loggedInUser, accessToken, refreshToken }, "User logged in successfully!!"));
+
+    console.log("Cookies Set Successfully!");
+});
+
 
 // user logout logic
-const logoutUser = asyncHandler( async(req, res) =>{
-    // yaha middleware lagana hoga anane se pehle
-
-    const userLogout = await User.findByIdAndUpdate(
-        req.user._id, 
-    {
-        $set: {
-            refreshToken: undefined
-        }
-    })  
-
-    const options = {
-        httpOnly: true,
-        secure: true,
+const logoutUser = asyncHandler(async (req, res) => {
+    if (!req.user?._id) {
+        return res.status(401).json(new ApiResponse(401, null, "Unauthorized request!"));
     }
 
-    return res
-    .status(200)
-    .clearCookie("accessToken", options)
-    .clearCookie("refreshToken", options)
-    .json(
-        new ApiResponse(200, null, "user logged out!!")
-    )
    
+    // await User.findByIdAndUpdate(req.user._id, {
+    //     $set: { refreshToken: undefined }
+    // });
 
-})
+    const loggedoutUser = await User.findByIdAndUpdate(req.user._id, {
+        $unset: { refreshToken: "" } // ✅ Proper way to remove a field
+    });
+
+    if(!loggedoutUser){
+        console.log('not dleted')
+    }
+
+    
+    const options = {
+        httpOnly: true,
+        sameSite: "None",
+        path: "/",
+        secure: process.env.NODE_ENV === "production", // ✅ Secure only in production
+    };
+
+    res
+        .clearCookie("accessToken", options)
+        .clearCookie("refreshToken", options)
+        .status(200)
+        .json(new ApiResponse(200, null, "User logged out successfully!"));
+
+    console.log("User logged out, cookies cleared!");
+});
+
 
 // update user data but only when user is valid..
 const updateUserData = asyncHandler(async (req, res) => {
     const { fullName, phone } = req.body;
+    console.log(req.body)
     const avatarLocalPath = req.file?.path;
 
     if (!fullName && !phone && !avatarLocalPath) {
@@ -211,21 +232,34 @@ const updateUserData = asyncHandler(async (req, res) => {
     }
 
     const updateFields = {};
-    if(fullName){
+    
+    if (fullName) {
         updateFields.fullName = fullName;
     } 
-        
-    if(phone){
-        updateFields.phone = phone;
+
+    if (phone) {
+        const userExistPhone = await User.findOne({ phone });
+
+        if (userExistPhone && userExistPhone._id.toString() !== req.user._id.toString()) {
+            throw new ApiError(409, "User with the same phone number already exists.");
+        }
+
+        updateFields.phone = phone;  // ✅ Moved outside the if block
     }
 
-    if(avatarLocalPath) {
+    if (avatarLocalPath) {
         const avatar = await uploadOnCloudinary(avatarLocalPath);
         
         if (!avatar) {
             throw new ApiError(400, "Avatar file upload failed");
         }
+        
         updateFields.avatar = avatar.url;
+    }
+
+    // Ensure the user ID is available
+    if (!req.user || !req.user._id) {
+        throw new ApiError(401, "Unauthorized access, please log in again.");
     }
 
     const updatedUser = await User.findByIdAndUpdate(
@@ -235,126 +269,148 @@ const updateUserData = asyncHandler(async (req, res) => {
     ).select("-password -refreshToken");
 
     return res
-    .status(200)
-    .json(
-        new ApiResponse(200, updatedUser, "User data updated successfully")
-    );
+        .status(200)
+        .json(
+            new ApiResponse(200, updatedUser, "User data updated successfully")
+        );
 });
+
 
 // updatePassword only if logged in
-const updatePassword = asyncHandler( async(req, res) => {
-    const {oldPassword, newPassword } = req.body;
+const updatePassword = asyncHandler(async (req, res) => {
+    const { oldPassword, newPassword } = req.body;
     const userId = req.user._id;
-
-    if(!oldPassword && !newPassword){
-        new ApiError(400," Both fields are empty.")
-    }
-
-    if(!oldPassword || !newPassword){
-        new ApiError(400," Fill both fields to procced.")
-    }
-
-    if(oldPassword === newPassword){
-        throw new ApiError(401, "Given old password in new password field. ")
-    }
-
-    const isMatch = userId.isPasswordCorrect(oldPassword)
-    if(!isMatch){
-        throw new ApiError("Old password is incorrect. ")
-    }
-
-    userId.password = newPassword;
-    await userId.save({ validateBeforeSave: false });
-
-    return res.status(200).json(
-        new ApiResponse(200, null, "Password updated successfully.")
-    );
-    
-})
-
-// forgot password and user logout , wantt to reset the password
-const generateOtp = () => {
-    return Math.floor(100000 + Math.random() * 900000).toString(); 
-  };
-
-
-const verifyUserSendOtp = asyncHandler( async(req, res) => {
-    const { emailOrPhone } = req.body
-
-    if(!emailOrPhone){
-        throw new ApiError(400, "Email or phone not specified. ")
-    }
-
-    const user = await User.findOne({
-        $or: [
-            {
-                email: emailOrPhone
-            },
-            {
-                phone: emailOrPhone
-            }
-        ]
-    })
-
-    if(!user){
-        throw new ApiError(404," User not found. ")
-    }
-
-
-    const otp = generateOtp();
-    req.session.otp = otp;
-    req.session.emailOrPhone = emailOrPhone;
   
-    // Set session expiry to 5 minutes
-    req.session.cookie.maxAge = 5 * 60 * 1000;
+    // Find the user by their ID
+    const user = await User.findById(userId);
   
-    const userEmail = user.email
-    const userName = capitalizeFullName(user.fullName)
-
-    await sendOtpMail(userEmail, userName, otp)
-    // await sendMail(email, subject, userData);
-    res.status(200).json(new ApiResponse(200, {}, 'Email verified and OTP sent.'));
-  });
-
-
-const verifyOtp = asyncHandler( async(req, res) => {
-        const { emailOrPhone, userOtp } = req.body;
-        
-        const storedOtp = req.session.otp;
-        const storedEmailOrPhone = req.session.emailOrPhone;
-        
-        if (!storedOtp || !storedEmailOrPhone) {
-          throw new ApiError(400, 'OTP has expired or is not valid.');
-        }
-      
-        // Clear OTP and email from session after use
-        delete req.session.otp;
-        delete req.session.emailOrPhone;
-        
-        if (userOtp !== storedOtp || emailOrPhone !== storedEmailOrPhone) {
-          throw new ApiError(400, 'Invalid OTP or email.');
-        }
-      
-        res.status(200).json(new ApiResponse(200, {}, 'OTP validated.'));
-});
-
-const resetPassword = asyncHandler(async (req, res, next) => {
-    const { emailOrPhone, newPassword } = req.body;
-  
-    const user = await User.findOne({
-        $or:[
-            { email: emailOrPhone}, { phone: emailOrPhone}
-        ]
-     });
-
-    if (!user) {
-      throw new ApiError(400, 'Invalid email. Please retry with the correct email.');
+    // Validate input fields (throwing errors if conditions are not met)
+    if (!oldPassword && !newPassword) {
+      throw new ApiError(400, "Both fields are empty.");
+    }
+    if (!oldPassword || !newPassword) {
+      throw new ApiError(400, "Fill both fields to proceed.");
+    }
+    if (oldPassword === newPassword) {
+      throw new ApiError(401, "New password cannot be the same as the old password.");
     }
   
+    // Verify the old password is correct
+    const isMatch = user.isPasswordCorrect(oldPassword);
+    if (!isMatch) {
+      throw new ApiError(401, "Old password is incorrect.");
+    }
+  
+    // Set the new password on the user instance (not on userId)
     user.password = newPassword;
     await user.save({ validateBeforeSave: false });
   
-    res.status(200).json(new ApiResponse(200, {}, 'Password changed successfully.'));
+    return res.status(200).json(
+      new ApiResponse(200, null, "Password updated successfully.")
+    );
+  });
+  
+
+  // Function to generate OTP using date-time randomness
+  const generateOtp = () => {
+    const now = new Date();
+    const dateTimeString =
+      now.getFullYear().toString().slice(-2) +
+      String(now.getMonth() + 1).padStart(2, "0") +
+      String(now.getDate()).padStart(2, "0") +
+      String(now.getHours()).padStart(2, "0") +
+      String(now.getMinutes()).padStart(2, "0");
+  
+    let otp = "";
+    for (let i = 0; i < 5; i++) {
+      const randomIndex = Math.floor(Math.random() * dateTimeString.length);
+      const randomDigit = Math.floor(Math.random() * 10);
+      otp += Math.random() < 0.5 ? dateTimeString[randomIndex] : randomDigit;
+    }
+    return otp;
+  };
+  
+  // Send OTP and store in Redis
+  const verifyUserSendOtp = asyncHandler(async (req, res) => {
+    const { contact } = req.body;
+  
+    if (!contact) {
+      throw new ApiError(400, "Email or phone not specified.");
+    }
+  
+    const user = await User.findOne({
+      $or: [{ email: contact }, { phone: contact }],
+    });
+  
+    if (!user) {
+      throw new ApiError(404, "User not found.");
+    }
+  
+    const otp = generateOtp();
+    const expiresIn = 3000; 
+  
+    // Store OTP in Redis with expiration time
+    await redis.setex(`otp:${contact}`, expiresIn, otp);
+  
+    const userEmail = user.email;
+    const userName = user.fullName; // Assuming fullName exists
+  
+    await sendOtpMail(userEmail, userName, otp);
+  
+    res.status(200).json(
+      new ApiResponse(200, {}, "OTP sent successfully. Please check your inbox.")
+    );
+  });
+  
+  // Verify OTP using Redis
+const verifyOtp = asyncHandler(async (req, res) => {
+    const { contact, userOtp } = req.body;
+  
+    if (!contact || !userOtp) {
+      throw new ApiError(400, "Contact and OTP are required.");
+    }
+  
+    // Retrieve OTP from Redis
+    const storedOtp = await redis.get(`otp:${contact}`);
+  
+    if (!storedOtp) {
+      throw new ApiError(400, "OTP has expired or is not valid.");
+    }
+  
+    if (userOtp !== storedOtp) {
+      throw new ApiError(400, "Invalid OTP.");
+    }
+  
+    // Delete OTP from Redis after successful verification
+    await redis.del(`otp:${contact}`);
+  
+    res.status(200).json(new ApiResponse(200, {}, "OTP validated."));
+  });
+  
+  // Reset password after OTP verification
+const resetPassword = asyncHandler(async (req, res) => {
+    const { contact, newPassword } = req.body;
+  
+    if (!contact || !newPassword) {
+      throw new ApiError(400, "Contact and new password are required.");
+    }
+  
+    const user = await User.findOne({
+      $or: [{ email: contact }, { phone: contact }],
+    });
+  
+    if (!user) {
+      throw new ApiError(
+        400,
+        "Invalid email or phone. Please retry with the correct details."
+      );
+    }
+  
+    // Update password (assuming password hashing is handled in the model)
+    user.password = newPassword;
+    await user.save({ validateBeforeSave: false });
+  
+    res.status(200).json(new ApiResponse(200, {}, "Password changed successfully."));
   });
   
   
@@ -362,7 +418,10 @@ const resetPassword = asyncHandler(async (req, res, next) => {
 // >>>>>>>>>> user part ends <<<<<<<<<<<<<<<
 
 // >>>>>>>>>> pet part starts <<<<<<<<<<<<<<
+
+
 // now the pet data creation (if authorized user)
+
 const registerPet = asyncHandler( async(req, res) => {
     const {petName, species, breed, age } = req.body;
 
@@ -392,7 +451,7 @@ const registerPet = asyncHandler( async(req, res) => {
         owner:ownerId
     })
     
-    if(!petCreated){
+    if(!pet){
         throw new ApiError(500,"Something went wrong while registering the pet. ")
     }
 
@@ -415,154 +474,134 @@ const registerPet = asyncHandler( async(req, res) => {
 
 })
 
+// get the pet data
+const getPetData = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
 
-// now update pet data
-const updatePetData = asyncHandler( async(req, res) => {
+  const pets = await Pet.find({ owner: userId }).populate('owner', 'name email');
 
-    const {petName, species, breed, age } = req.body;
+  if (!pets || pets.length === 0) {
+    throw new ApiError(404, "No pets found for this user.");
+  }
 
-    const ownerId = req.user._id
-    const pet = await Pet.findById(ownerId)
+  const petInfo = pets.map(pet => ({
+    _id: pet._id, // Needed by frontend to use as option value
+    petName: pet.petName,
+    species: pet.species,
+    breed: pet.breed,
+    age: pet.age,
+    petAvatar: pet.petAvatar,
+    owner: pet.owner,
+  }));
 
-    if(!pet){
-        throw new ApiError(404,"pet infomation not found . ")
+  return res.status(200).json(
+    new ApiResponse(200, petInfo, "Pet details retrieved successfully.")
+  );
+});
+
+
+
+const updatePetData = asyncHandler(async (req, res) => {
+    const { petName, species, breed, age } = req.body;
+    const ownerId = req.user._id;
+  
+    // Use findOne to locate a single pet associated with the ownerId.
+    const pet = await Pet.findOne({ owner: ownerId });
+  
+    if (!pet) {
+      throw new ApiError(404, "Pet information not found.");
     }
-
-
+  
+    // Get the local file path for the pet avatar, if uploaded
     const petAvatarLocalPath = req.file?.path;
-
-    if(!petName && !species && !breed && !age && !petAvatarLocalPath){
-        throw new ApiError(400,"provide with fields to update")
+  
+    // Validate that at least one update field is provided.
+    if (!petName && !species && !breed && !age && !petAvatarLocalPath) {
+      throw new ApiError(400, "Provide at least one field to update.");
     }
-
-    if(petAvatarLocalPath){
-        const petAvatarImage = await uploadOnCloudinary(petAvatarLocalPath)
+  
+    // If there's a new pet avatar, upload it and update pet.petAvatar.
+    if (petAvatarLocalPath) {
+      const petAvatarImage = await uploadOnCloudinary(petAvatarLocalPath);
+      pet.petAvatar = petAvatarImage?.url || pet.petAvatar;
     }
+  
+    // Update the pet details if provided.
+    if (petName) pet.petName = petName;
+    if (species) pet.species = species;
+    if (breed) pet.breed = breed;
+    if (age) pet.age = age;
+  
+    // Save the updated pet details to the database.
+    const updatedPet = await pet.save();
+  
+    // Return the updated pet data with a success response.
+    res.status(200).json(
+      new ApiResponse(200, updatedPet, "Pet data updated successfully.")
+    );
+  });
+  
+
+  const getPetsByOwnerId = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    console.log(id+"hello")
+    const ownerId  = id;
+
     
-})
-
+    const pets = await Pet.find({ owner: ownerId }).populate("owner", "fullName email phone");
+  
+    if (!pets.length) {
+      return res.status(404).json(new ApiResponse(404, [], "No pets found for this owner"));
+    }
+  
+    const formatted = pets.map(pet => ({
+      _id: pet._id,
+      petName: pet.petName,
+      age: pet.age,
+      breed: pet.breed,
+      species: pet.species,
+      image: pet.petAvatar,
+      ownerName: pet.owner?.fullName || "N/A",
+      ownerEmail: pet.owner?.email || "N/A",
+      ownerPhone: pet.owner?.phone || "N/A"
+    }));
+  
+    return res.status(200).json(new ApiResponse(200, formatted, "Pets fetched successfully"));
+  });
+  
 // >>>>>>>>>> pet part ends <<<<<<<<<<<<<<<
 
 
 // >>>>> booking part starts  <<<<<<
 
-const bookAppointment = asyncHandler(async (req, res) => {
-    const { userId, petId, staffId, date, bookedSlot } = req.body;
 
-    // Validate input data
-    if (!userId && !petId && !staffId && !date && !bookedSlot) {
-        throw new ApiError(400, "All fields are required.");
-    }
 
-    // Check if the user exists
-    const user = await User.findById(userId);
-    if (!user) {
-        throw new ApiError(404, "User not found");
-    }
+const getUserPayments = asyncHandler(async (req, res) => {
+  const payments = await Payment
+    .find({ user: req.user._id })
+    .populate({
+      path: "appointment",
+      populate: { path: "staff", select: "name profession specialization" }
+    })
+    .sort({ createdAt: -1 });
 
-    // Check if the pet exists and belongs to the user
-    const pet = await Pet.findOne({ _id: petId, owner: userId });
-    if (!pet) {
-        throw new ApiError(404, "Pet not found or does not belong to the user");
-    }
-
-    // Check if the staff exists
-    const staff = await Staff.findById(staffId);
-    if (!staff) {
-        throw new ApiError(404, "Staff not found");
-    }
-
-    // Convert the date to a day (e.g., "Monday")
-    const appointmentDate = new Date(date);
-    const dayOfWeek = appointmentDate.toLocaleString("en-US", { weekday: "long" }); // e.g., "Monday"
-
-    // Check if the staff is available on the requested day
-    const staffAvailability = staff.availableSlots.find(slot => slot.day === dayOfWeek);
-    if (!staffAvailability) {
-        throw new ApiError(400, `Staff is not available on ${dayOfWeek}`);
-    }
-
-    // Check if the requested time slot is available
-    if (!staffAvailability.timeSlots.includes(bookedSlot)) {
-        throw new ApiError(400, `Staff is not available at the requested time slot: ${bookedSlot}`);
-    }
-
-    // Check if the staff is already booked at the requested date and time slot
-    const existingAppointment = await Appointment.findOne({
-        staff: staffId,
-        date: date,
-        bookedSlot: bookedSlot,
-        status: { $in: ["scheduled"] }, // Only check for scheduled appointments
-    });
-
-    if (existingAppointment) {
-        throw new ApiError(400, "Staff is already booked at the requested time slot");
-    }
-
-    // Create the appointment
-    const appointment = await Appointment.create({
-        user: userId,
-        staff: staffId,
-        pet: petId,
-        date: date,
-        bookedSlot: bookedSlot,
-        status: "scheduled", // Default status
-    });
-
-    if (!appointment) {
-        throw new ApiError(500, "Failed to book appointment");
-    }
-
-    // Return the created appointment
-    return res
-        .status(201)
-        .json(new ApiResponse(201, appointment, "Appointment booked successfully"));
+  res.status(200).json(new ApiResponse(200, payments, "Payments fetched."));
 });
 
-const updateBookingStatus  = asyncHandler( async(req, res)=>{
-    const userId = req.user._id;
-    const appointmentId = req.body.appointmentId; // Assuming appointmentId is passed as a route parameter
+const getAllAppointments = async (req, res) => {
+  try {
+    const appointments = await Appointment.find()
+      .populate("user", "fullName")
+      .populate("staff", "fullName")
+      .populate("pet", "name")
+      .sort({ date: -1 }); // latest first
 
-    try {
-        const appointment = await Appointment.findOne({
-            _id: appointmentId,
-            user: userId,
-        });
-
-        if (!appointment) {
-            throw new ApiError(404, "Appointment not found or not authorized.");
-        }
-
-        if (appointment.bookingStatus === 'cancelled') {
-            throw new ApiError(400, "Appointment is already cancelled.");
-        }
-
-        appointment.bookingStatus = 'cancelled';
-        await appointment.save();
-
-        res.status(200).json({
-            success: true,
-            message: "Appointment cancelled successfully.",
-            data: appointment,
-        });
-    } catch (error) {
-        if (error instanceof ApiError) {
-            res.status(error.statusCode).json({
-                success: false,
-                message: error.message,
-            });
-        } else {
-            // Handle other errors (e.g., database errors)
-            console.error("Error cancelling appointment:", error);
-            res.status(500).json({
-                success: false,
-                message: "Internal server error.",
-            });
-        }
-    }
-});
-
-
+    res.status(200).json(appointments);
+  } catch (error) {
+    console.error("Error fetching appointments:", error);
+    res.status(500).json({ message: "Failed to fetch appointments" });
+  }
+};
 
 
 export  {
@@ -573,8 +612,11 @@ export  {
     updatePassword,
     verifyUserSendOtp,
     verifyOtp,
+    getPetData,
     resetPassword,
     registerPet,
     updatePetData,
-    bookAppointment
+    getUserPayments,
+    getAllAppointments,
+    getPetsByOwnerId
 }

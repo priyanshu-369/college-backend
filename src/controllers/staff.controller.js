@@ -100,6 +100,8 @@ const logoutStaff = asyncHandler( async(req, res) =>{
    
 })
 
+
+
 // getting all the completed appointments by staff
 const checkTotalCompletedAppointments = asyncHandler ( async(req, res) =>{
 
@@ -284,8 +286,65 @@ const updateApointmentStatus = asyncHandler( async(req, res) => {
         .json(new ApiResponse(200, result, "Appointment status updated successfully"));
     });
 
+ 
+//     // ✅ Get All Staff Members
+//  const getAllStaff = asyncHandler(async (req, res) => {
+//         try {
+//             const staff = await Staff.find().select("name email phone avatar profession specialist description availableSlots");
+    
+//             if (staff.length === 0) {
+//                 throw new ApiError(404, "No staff members found.");
+//             }
+    
+//             return res.status(200).json(
+//                 new ApiResponse(200, staff, "Staff members fetched successfully.")
+//             );
+//         } catch (error) {
+//             throw new ApiError(500, "Failed to fetch staff members.");
+//         }
+//     });
+    
 
 
+const getAllStaff = async (req, res) => {
+  try {
+    // Extract the professions query parameter, if any.
+    const { professions } = req.query;
+    let filter = {};
+
+    // If professions are provided, filter by them.
+    if (professions) {
+      // Split comma-separated professions into an array.
+      const professionArray = professions.split(",");
+      filter.profession = { $in: professionArray };
+    }
+
+    // Fetch staff data from the database.
+    // If no filter is provided, all staff will be fetched and sorted in descending order (by createdAt).
+    const staffList = await Staff.find(filter).sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      data: staffList,
+    });
+  } catch (error) {
+    console.error("Error fetching staff data:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+const getStaffById = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const staff = await Staff.findById(id).select("-password -refreshToken");
+    if (!staff) {
+      throw new ApiError(404, "Staff member not found");
+    }
+    // return in the same `{ data }` shape your front‐end expects
+    return res.status(200).json(new ApiResponse(200, staff, "Staff fetched successfully"));
+  });
 
 // >>> notes this part will be for  
 // get all staff list
@@ -295,10 +354,12 @@ const updateApointmentStatus = asyncHandler( async(req, res) => {
 
 
 export {
+    getAllStaff,
     loginStaff,
     logoutStaff,
     checkTotalCompletedAppointments,
     checkTotalScheduledAppointments,
     checkTodaysAppointments,
-    updateApointmentStatus
+    updateApointmentStatus,
+    getStaffById
 }

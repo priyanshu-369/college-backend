@@ -34,8 +34,12 @@ const staffSchema = new mongoose.Schema(
         specialization: { 
             type: String //"dermatologist", "surgeon", "cat specialist"
         }, 
-        qulification: {
+        description: {
             type: String
+        },
+        fee:{ type: Number,
+        required: true,
+        min: [0, "Fee must be a positive number"]
         },
         availableSlots:[{ 
             day: { 

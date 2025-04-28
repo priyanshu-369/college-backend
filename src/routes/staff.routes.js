@@ -1,17 +1,23 @@
 // yaha Router ko liya express se
 import { Router } from "express";
 import { verifyStaffJWT } from "../middlewares/checkRights.middleware.js";
-import { loginStaff, 
+import { getAllStaff,
+         loginStaff, 
          logoutStaff,
          checkTotalCompletedAppointments,
          checkTotalScheduledAppointments,
          checkTodaysAppointments,
-         updateApointmentStatus
+         updateApointmentStatus,
+         getStaffById
  } from "../controllers/staff.controller.js";
 
 
 //yaha router ka object banaya
 const router = Router()
+
+router.route("/").get(getAllStaff)
+
+router.route("/:id").get(getStaffById)
 
 // for logging in the user[owner] and admin
 router.route("/login").post(loginStaff)
